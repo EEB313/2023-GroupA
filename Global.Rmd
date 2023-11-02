@@ -1,0 +1,361 @@
+```{r, warning = F, message = F}
+packages <- c("tidyverse", "vegan", "leaflet", "readxl")
+lapply(packages, library, character.only = T)
+```
+
+# Managing the mushroom observations data
+
+```{r, warning = F, message = F}
+obs <- read_tsv("observations.csv")
+# Removing the useless information
+obs <- obs %>% 
+  subset(is_collection_location == 1) %>% # Some reported specimens were not picked at that location 
+  select(name_id, when, location_id, confidence = vote_cache) #Taking only useful columns
+
+#--------------------------------------------
+
+# Reading in the locations
+locCrude <- read_tsv("locations.csv")
+
+# Including the location, name, id, and latitude and longitude
+# Note the file gives north, east, south and west bounds, we take the center of this region
+# Making column names suitable for the observation file
+loc <- locCrude %>% 
+  mutate(lat = (north + south) / 2, long = (west + east) / 2) %>% 
+  select(location_id = id, lat, long, location = name)
+
+# Using the location data to identify the locations ids in the observation file
+obs <- left_join(obs, loc, by = "location_id")
+
+#--------------------------------------------
+
+# Reading in the species
+speciesCrude <- read_tsv("names.csv")
+
+# Including the name id, name, and taxonomic ranking
+species <- speciesCrude[,c(1,2,7)]
+
+# Making column names suitable for the observation file
+species <- rename(species, name_id = id, name = text_name)
+
+# Using the name data to identify the name ids in the observation file
+obs <- left_join(obs, species, by = "name_id")
+
+# The rank indicates what taxonomic level the observer provides (species, genus, family, etc.) - species is 4, genus is 9
+# If/when we analyze individual species we may want to filter by confidence - the confidence is crowd-supported votes on whether or not the species is identified correctly
+```
+
+# Climate 
+
+```{r}
+# Filtering observations for only observations seen in San Fran. during the
+# climate data window
+sanFranObs <- obs %>% 
+  filter(lat <= 38 & lat >= 37.7 & 
+           long <= -122.1 & long >= -122.8 &
+           when >= as.Date("2007-01-01") & when < as.Date("2023-01-01")) 
+```
+
+## Monthly Exploration
+
+### Abundance
+```{r}
+# San Francisco monthly climate average
+clim <- read.table("MonthClim.txt")
+clim <- clim %>% 
+  filter(V2 != -9999) %>% # Removing NA values
+  select(when = V1, averageTemp = V2, totalPrecipitation = V7) %>% 
+  mutate(when = my(when)) # Making the data type a date
+
+# Monthly analysis
+monthObs <- sanFranObs %>%   
+  group_by(when = floor_date(when, "month")) %>% 
+  tally()
+
+# Matching climate data to observation dates
+monthObs <- left_join(monthObs, clim, by = "when") %>% 
+  filter(!is.na(averageTemp))
+
+# Plotting monthly observations to monthly climate
+monthObs %>% 
+  ggplot(aes(x = when)) + 
+  geom_line(aes(y = monthObs$n, col = "Observations"), size=0.75) +
+  geom_line(aes(y = monthObs$totalPrecipitation, col = "Precipitation"), size=0.75) +
+  geom_line(aes(y = monthObs$averageTemp/0.1, col = "Temperature"), size=0.75) +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
+  xlim(as.Date(c("2010-01-01", "2014-01-01"))) +
+  geom_vline(xintercept = as.Date("2010-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2011-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2012-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2013-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2014-01-01"), color="grey50") +
+  ylab("Observations (n) and Precipitation (mm)") +
+  theme_classic()
+
+# Examining the relationship
+monthObs %>% 
+  ggplot(aes(x = averageTemp, y = n)) +
+  geom_point(col = "darkred") +
+  theme_classic()
+
+monthObs %>% 
+  ggplot(aes(x = totalPrecipitation, y = n)) +
+  geom_point(col = "blue") +
+  theme_classic()
+```
+
+### Diversity
+
+```{r}
+# Incorporating species data and making the data frame suitable for the diversity() function
+divMonthObs <- sanFranObs %>% 
+  filter(rank == 4) %>% 
+  select(when, name) %>% 
+  group_by(when = floor_date(when, "month"), name) %>% 
+  tally() %>% 
+  pivot_wider(names_from = name, values_from = n, values_fill = 0)
+
+divMonthObs <- data.frame(divMonthObs, 
+                          diversity = 
+                            diversity(divMonthObs[,2:length(divMonthObs)], 
+                                      index = "simpson"))
+
+divMonthObs <- left_join(divMonthObs, clim, by = "when") %>% 
+  filter(!is.na(averageTemp) & diversity != 0)
+
+# Diversity with climate overlayed - scaled up for clarity
+divMonthObs %>% 
+  ggplot(aes(x = when)) + 
+  geom_line(aes(y = divMonthObs$diversity*500, col = "Diversity"), size=0.75) +
+  geom_line(aes(y = divMonthObs$totalPrecipitation, 
+                col = "Precipitation"), size=0.75) +
+  geom_line(aes(y = divMonthObs$averageTemp/0.1, 
+                col = "Temperature"), size=0.75) +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
+  xlim(as.Date(c("2010-01-01", "2014-01-01"))) +
+  geom_vline(xintercept = as.Date("2010-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2011-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2012-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2013-01-01"), color="grey50") +
+  geom_vline(xintercept = as.Date("2014-01-01"), color="grey50") +
+  theme_classic()
+
+# Plotting the relations
+divMonthObs %>% 
+  ggplot(aes(x = averageTemp, y = diversity)) +
+  geom_point(col = "darkred") +
+  theme_classic()
+
+divMonthObs %>% 
+  ggplot(aes(x = totalPrecipitation, y = diversity)) +
+  geom_point(col = "blue") +
+  theme_classic()
+```
+
+## Weekly Exploration
+
+### Abundance
+
+```{r}
+# San Francisco daily climate average
+climD <- read.table("DailyClim.txt")
+climW <- climD %>% 
+  filter(V5 != -9999) %>% 
+  select(when = V1, averageTemp = V5, totalPrecipitation = V8) %>% 
+  mutate(when = mdy(when)) %>% 
+  group_by(when = floor_date(when, "week")) %>% 
+  summarize(averageTemp = mean(averageTemp), 
+            totalPrecipitation = sum(totalPrecipitation))
+
+# Filtering observations for only observations seen in San Fran. 
+# during the climate data window
+weekObs <- obs %>% 
+  filter(lat <= 38 & lat >= 37.7 & 
+           long <= -122.1 & long >= -122.8 &
+           when >= as.Date("2006-01-01") & when < as.Date("2023-01-01")) %>% 
+  group_by(when = floor_date(when, "week")) %>% 
+  tally()
+
+# Matching climate data to observation dates
+weekObs <- left_join(weekObs, climW, by = "when") %>% 
+  filter(!is.na(averageTemp))
+
+# Creating a vector to plot month divisions
+months <- c()
+for(y in c(0:1)) {
+  
+  for(m in c(1:12)) {
+    
+      months[m+(12*y)] <- 
+        paste("201",as.character(y),"-",as.character(m),"-01", sep = "")
+    
+  }
+  
+}
+
+# Plotting
+weekObs %>% 
+  ggplot(aes(x = when)) + 
+  geom_line(aes(y = weekObs$n, 
+                col = "Observations"), size=0.75) +
+  geom_line(aes(y = weekObs$totalPrecipitation, 
+                col = "Precipitation"), size=0.75) +
+  geom_line(aes(y = weekObs$averageTemp/0.1, 
+                col = "Temperature"), size=0.75) +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
+  xlim(as.Date(c("2010-01-01", "2012-01-01"))) +
+  geom_vline(xintercept = as.Date(months), colour = "grey", linetype = "dashed") +
+  geom_vline(xintercept = as.Date("2011-01-01")) +
+  ylab("Observations (n) and Precipitation (mm)") +
+  theme_classic()
+
+weekObs %>% 
+  ggplot(aes(x = averageTemp, y = n)) +
+  geom_point(col = "darkred") +
+  theme_classic()
+
+weekObs %>% 
+  ggplot(aes(x = totalPrecipitation, y = n)) +
+  geom_point(col = "blue") +
+  theme_classic()
+```
+
+### Diversity
+
+```{r}
+weekObs <- sanFranObs %>% 
+  filter(lat <= 38 & lat >= 37.7 & 
+           long <= -122.1 & long >= -122.8 &
+           when >= as.Date("2006-01-01") & when < as.Date("2023-01-01")) %>% 
+  group_by(when = floor_date(when, "week")) %>% 
+  tally()
+
+divWeekObs <- sanFranObs %>% 
+  filter(rank == 4) %>% 
+  select(when, name) %>% 
+  group_by(when = floor_date(when, "week"), name) %>% 
+  tally() %>% 
+  pivot_wider(names_from = name, values_from = n, values_fill = 0)
+
+divWeekObs <- data.frame(divWeekObs, 
+                         diversity = 
+                           diversity(divWeekObs[,2:length(divWeekObs)], 
+                                    index = "simpson"))
+
+divWeekObs <- left_join(divWeekObs, climW, by = "when") %>% 
+  filter(!is.na(averageTemp) & diversity != 0)
+
+
+divWeekObs %>% 
+  ggplot(aes(x = when)) + 
+  geom_line(aes(y = divWeekObs$diversity*50, 
+                col = "Diversity"), size=0.75) +
+  geom_line(aes(y = divWeekObs$totalPrecipitation, 
+                col = "Precipitation"), size=0.75) +
+  geom_line(aes(y = divWeekObs$averageTemp/0.1, 
+                col = "Temperature"), size=0.75) +
+  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
+  xlim(as.Date(c("2010-01-01", "2012-01-01"))) +
+  geom_vline(xintercept = as.Date(months), colour = "grey", linetype = "dashed") +
+  geom_vline(xintercept = as.Date("2011-01-01")) +
+  theme_classic()
+
+divWeekObs %>% 
+  ggplot(aes(x = averageTemp, y = diversity)) +
+  geom_point(col = "darkred") +
+  theme_classic()
+
+divWeekObs %>% 
+  ggplot(aes(x = totalPrecipitation, y = diversity)) +
+  geom_point(col = "blue") +
+  theme_classic()
+```
+
+# Wildfires
+
+## Fire Mapping
+```{r}
+fire <- read.csv("mapdataall.csv")
+# Removing useless columns & formatting date to relevant information.
+fire <- fire %>% 
+  select(incident_name, incident_date_created, incident_county, incident_acres_burned) %>% 
+  filter(incident_county != "") %>% 
+  mutate(incident_date_created=ymd_hms(incident_date_created)) %>% 
+  mutate(incident_date_created=format(incident_date_created, "%Y-%m-%d")); fire
+
+# Taking a quick look
+ggplot(fire, aes(x=incident_county, y=incident_acres_burned)) +
+  geom_bar(stat="sum") +
+  labs(title="Acres burned in California Counties",
+       x="County",
+       y="Total Acres Burned") +
+  theme(axis.text.x = element_text(angle = 90, size = 6))
+
+
+# Selecting relevant columns, reformatting strings to standard, relating it to
+# mushroom dataset.
+ca_counties_xlsx <- read_excel("us-county-boundaries.xlsx")
+write.csv(ca_counties_xlsx, file="ca-county-coords.csv", row.names=FALSE)
+ca_counties <- read.csv("ca-county-coords.csv")
+ca_counties <- ca_counties %>% 
+  select(NAMELSAD, INTPTLAT, INTPTLON) %>% 
+  mutate(NAMELSAD=sub(" County", "", NAMELSAD)); ca_counties
+
+
+# merged fire and ca_counties to correlate longitude and latitude based on county
+merged_fire <- fire %>% 
+  left_join(ca_counties, by=c("incident_county"="NAMELSAD")) %>% 
+  filter(!is.na(INTPTLAT)); merged_fire
+
+
+# visual map where fires occurred based of longitudes and latitudes in the 
+# merged_fire dataset.
+map <- leaflet(merged_fire) %>% 
+  addTiles() %>% 
+  addCircleMarkers(
+    lng = ~INTPTLON,
+    lat = ~INTPTLAT,
+    weight = 1,
+    radius = ~sqrt(incident_acres_burned)*0.02,
+    color = "red",
+    fillOpacity = 0.4,
+    popup = ~paste("Acres Burned: ", incident_acres_burned)
+  ) %>%
+  addLegend("bottomright", colors="red", labels="Acres Burned"); map
+
+```
+
+## Exploring effect
+
+```{r}
+# Looking for the biggest fire
+merged_fire %>% 
+  arrange(desc(incident_acres_burned)) 
+
+# Looking through Mushroom Observer 
+obs %>% 
+  group_by(location) %>% 
+  tally() %>% 
+  arrange(desc(n))
+
+# Graphing the trend in Observations before and after fire
+## Bar
+obs %>% 
+  filter(location == "Yosemite National Park, Mariposa Co., Mono Co., Madera Co., and Tuolumne Co., California, USA") %>% 
+  mutate(before_fire = when < "2013-08-17") %>% 
+  group_by(when, before_fire) %>% 
+  filter(when > "2011-08-17" & when < "2015-08-17") %>% 
+  tally() %>% 
+  ggplot(aes(x = when, fill = before_fire)) + geom_histogram() + geom_vline(xintercept = as.numeric(as.Date("2013-08-17"))) + labs(title = "Mushroom abundance before and after Rim Fire", x = "Dates", y = "Mushroom Count")
+
+## Line
+obs %>% 
+  filter(location == "Yosemite National Park, Mariposa Co., Mono Co., Madera Co., and Tuolumne Co., California, USA") %>% 
+  mutate(before_fire = when < "2013-08-17") %>% 
+  group_by(when, before_fire) %>% 
+  filter(when > "2011-08-17" & when < "2015-08-17") %>% 
+  tally() %>% 
+  ggplot(aes(x = when, y = n)) + geom_line() + geom_vline(xintercept = as.numeric(as.Date("2013-08-17"))) + labs(title = "Mushroom abundance before and after Rim Fire", x = "Dates", y = "Mushroom Count")
+
+```
+
