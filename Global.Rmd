@@ -294,32 +294,34 @@ ggplot(fire, aes(x=incident_county, y=incident_acres_burned)) +
 
 # Selecting relevant columns, reformatting strings to standard, relating it to
 # mushroom dataset.
-ca_counties_xlsx <- read_excel("us-county-boundaries.xlsx")
-write.csv(ca_counties_xlsx, file="ca-county-coords.csv", row.names=FALSE)
-ca_counties <- read.csv("ca-county-coords.csv")
-ca_counties <- ca_counties %>% 
+caCountiesXlsx <- read_excel("us-county-boundaries.xlsx")
+write.csv(caCountiesXlsx, file="ca-county-coords.csv", row.names=FALSE)
+caCounties <- read.csv("ca-county-coords.csv")
+caCounties <- caCounties %>% 
   select(NAMELSAD, INTPTLAT, INTPTLON) %>% 
-  mutate(NAMELSAD=sub(" County", "", NAMELSAD)); ca_counties
+  mutate(NAMELSAD=sub(" County", "", NAMELSAD))
 
 
 # merged fire and ca_counties to correlate longitude and latitude based on county
-merged_fire <- fire %>% 
-  left_join(ca_counties, by=c("incident_county"="NAMELSAD")) %>% 
-  filter(!is.na(INTPTLAT)); merged_fire
+mergedFire <- fire %>% 
+  left_join(caCounties, by=c("incident_county"="NAMELSAD")) %>% 
+  filter(!is.na(INTPTLAT))
 
+colnames(mergedFire) <- c("incidentName", "incidentDateCreated", "incidentCounty", 
+                          "incidentAcresBurned", "lat", "lon"); mergedFire
 
 # visual map where fires occurred based of longitudes and latitudes in the 
 # merged_fire dataset.
-map <- leaflet(merged_fire) %>% 
+map <- leaflet(mergedFire) %>% 
   addTiles() %>% 
   addCircleMarkers(
-    lng = ~INTPTLON,
-    lat = ~INTPTLAT,
+    lng = ~lon,
+    lat = ~lat,
     weight = 1,
-    radius = ~sqrt(incident_acres_burned)*0.02,
+    radius = ~sqrt(incidentAcresBurned)*0.02,
     color = "red",
     fillOpacity = 0.4,
-    popup = ~paste("Acres Burned: ", incident_acres_burned)
+    popup = ~paste("Acres Burned: ", incidentAcresBurned)
   ) %>%
   addLegend("bottomright", colors="red", labels="Acres Burned"); map
 
@@ -329,8 +331,8 @@ map <- leaflet(merged_fire) %>%
 
 ```{r}
 # Looking for the biggest fire
-merged_fire %>% 
-  arrange(desc(incident_acres_burned)) 
+mergedFire %>% 
+  arrange(desc(incidentAcresBurned)) 
 
 # Looking through Mushroom Observer 
 obs %>% 
@@ -357,5 +359,14 @@ obs %>%
   tally() %>% 
   ggplot(aes(x = when, y = n)) + geom_line() + geom_vline(xintercept = as.numeric(as.Date("2013-08-17"))) + labs(title = "Mushroom abundance before and after Rim Fire", x = "Dates", y = "Mushroom Count")
 
+```
+
+## Analysis
+
+```{r}
+obs
+generator <- function(locationToUse){
+  print("tbd")
+}
 ```
 
