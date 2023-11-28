@@ -41,6 +41,9 @@ species <- rename(species, name_id = id, name = text_name)
 # Using the name data to identify the name ids in the observation file
 obs <- left_join(obs, species, by = "name_id")
 
+colnames(obs) <- c("nameId", "when", "locationId", 
+                          "confidence", "lat", "lon", "location", "name", "rank"); obs
+
 # The rank indicates what taxonomic level the observer provides (species, genus, family, etc.) - species is 4, genus is 9
 # If/when we analyze individual species we may want to filter by confidence - the confidence is crowd-supported votes on whether or not the species is identified correctly
 ```
@@ -52,8 +55,8 @@ obs <- left_join(obs, species, by = "name_id")
 # climate data window
 sanFranObs <- obs %>% 
   filter(lat <= 38 & lat >= 37.7 & 
-           long <= -122.1 & long >= -122.8 &
-           when >= as.Date("2007-01-01") & when < as.Date("2023-01-01")) 
+           lon <= -122.1 & lon >= -122.8 &
+           when >= as.Date("2007-01-01") & when < as.Date("2023-01-01")); sanFranObs
 ```
 
 ## Monthly Exploration
@@ -171,7 +174,7 @@ climW <- climD %>%
 # during the climate data window
 weekObs <- obs %>% 
   filter(lat <= 38 & lat >= 37.7 & 
-           long <= -122.1 & long >= -122.8 &
+           lon <= -122.1 & lon >= -122.8 &
            when >= as.Date("2006-01-01") & when < as.Date("2023-01-01")) %>% 
   group_by(when = floor_date(when, "week")) %>% 
   tally()
@@ -225,7 +228,7 @@ weekObs %>%
 ```{r}
 weekObs <- sanFranObs %>% 
   filter(lat <= 38 & lat >= 37.7 & 
-           long <= -122.1 & long >= -122.8 &
+           lon <= -122.1 & lon >= -122.8 &
            when >= as.Date("2006-01-01") & when < as.Date("2023-01-01")) %>% 
   group_by(when = floor_date(when, "week")) %>% 
   tally()
@@ -281,7 +284,7 @@ fire <- fire %>%
   select(incident_name, incident_date_created, incident_county, incident_acres_burned) %>% 
   filter(incident_county != "") %>% 
   mutate(incident_date_created=ymd_hms(incident_date_created)) %>% 
-  mutate(incident_date_created=format(incident_date_created, "%Y-%m-%d")); fire
+  mutate(incident_date_created=format(incident_date_created, "%Y-%m-%d"))
 
 # Taking a quick look
 ggplot(fire, aes(x=incident_county, y=incident_acres_burned)) +
@@ -365,8 +368,10 @@ obs %>%
 
 ```{r}
 obs
+mergedFire
 generator <- function(locationToUse){
-  print("tbd")
 }
+
+generator("North Carolina, USA")
 ```
 
