@@ -3,7 +3,7 @@ packages <- c("tidyverse", "vegan", "leaflet", "readxl")
 lapply(packages, library, character.only = T)
 ```
 
-# Managing the mushroom observations data
+#Managing the mushroom observations data
 
 ```{r, warning = F, message = F}
 obs <- read_tsv("observations.csv")
@@ -29,26 +29,26 @@ obs <- left_join(obs, loc, by = "location_id")
 
 #--------------------------------------------
 
-# Reading in the species
+# Reading in the identifications
 speciesCrude <- read_tsv("names.csv")
+furtherTaxonomy <- read_tsv("name_classifications.csv")[,c(1,7)]
 
 # Including the name id, name, and taxonomic ranking
 species <- speciesCrude[,c(1,2,7)]
-
-# Making column names suitable for the observation file
-species <- rename(species, name_id = id, name = text_name)
+species <- rename(species, name_id = id)
 
 # Using the name data to identify the name ids in the observation file
 obs <- left_join(obs, species, by = "name_id")
+obs <- left_join(obs, furtherTaxonomy, by = "name_id")
 
 colnames(obs) <- c("nameId", "when", "locationId", 
-                          "confidence", "lat", "lon", "location", "name", "rank"); obs
+                          "confidence", "lat", "lon", "location", "name", "rank", "family")
 
 # The rank indicates what taxonomic level the observer provides (species, genus, family, etc.) - species is 4, genus is 9
-# If/when we analyze individual species we may want to filter by confidence - the confidence is crowd-supported votes on whether or not the species is identified correctly
+
 ```
 
-# Climate 
+#Climate 
 
 ```{r}
 # Filtering observations for only observations seen in San Fran. during the
@@ -56,12 +56,11 @@ colnames(obs) <- c("nameId", "when", "locationId",
 sanFranObs <- obs %>% 
   filter(lat <= 38 & lat >= 37.7 & 
            lon <= -122.1 & lon >= -122.8 &
-           when >= as.Date("2007-01-01") & when < as.Date("2023-01-01")); sanFranObs
+           when >= as.Date("2007-01-01") & when < as.Date("2023-01-01"))
 ```
 
-## Monthly Exploration
+##Monthly data manipulation 
 
-### Abundance
 ```{r}
 # San Francisco monthly climate average
 clim <- read.table("MonthClim.txt")
@@ -70,14 +69,35 @@ clim <- clim %>%
   select(when = V1, averageTemp = V2, totalPrecipitation = V7) %>% 
   mutate(when = my(when)) # Making the data type a date
 
-# Monthly analysis
+# Converting to abundance data and matching to climate data
 monthObs <- sanFranObs %>%   
   group_by(when = floor_date(when, "month")) %>% 
-  tally()
-
-# Matching climate data to observation dates
-monthObs <- left_join(monthObs, clim, by = "when") %>% 
+  tally() %>% 
+  left_join(clim, by = "when") %>% 
   filter(!is.na(averageTemp))
+
+# Converting to diversity data
+divMonthObs <- sanFranObs %>% 
+  filter(rank <= 9) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
+  mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
+  select(when, genus) %>% # Can be name, genus, or family
+  group_by(when = floor_date(when, "month"), genus) %>% # Can be name, genus, or family
+  tally() %>% 
+  pivot_wider(names_from = genus, values_from = n, 
+              values_fill = 0) # Can be name, genus, or family
+  
+## Adding diversity and climate
+divMonthObs <- data.frame(divMonthObs, 
+                          diversity = diversity(divMonthObs[,2:length(divMonthObs)], 
+                                                index = "shannon")) %>% 
+  left_join(clim, by = "when") %>% 
+  filter(!is.na(averageTemp))
+```
+
+##Monthly Exploration
+
+###Abundance
+```{r}
 
 # Plotting monthly observations to monthly climate
 monthObs %>% 
@@ -110,26 +130,10 @@ monthObs %>%
 ### Diversity
 
 ```{r}
-# Incorporating species data and making the data frame suitable for the diversity() function
-divMonthObs <- sanFranObs %>% 
-  filter(rank == 4) %>% 
-  select(when, name) %>% 
-  group_by(when = floor_date(when, "month"), name) %>% 
-  tally() %>% 
-  pivot_wider(names_from = name, values_from = n, values_fill = 0)
-
-divMonthObs <- data.frame(divMonthObs, 
-                          diversity = 
-                            diversity(divMonthObs[,2:length(divMonthObs)], 
-                                      index = "simpson"))
-
-divMonthObs <- left_join(divMonthObs, clim, by = "when") %>% 
-  filter(!is.na(averageTemp) & diversity != 0)
-
 # Diversity with climate overlayed - scaled up for clarity
 divMonthObs %>% 
   ggplot(aes(x = when)) + 
-  geom_line(aes(y = divMonthObs$diversity*500, col = "Diversity"), size=0.75) +
+  geom_line(aes(y = divMonthObs$diversity*100, col = "Diversity"), size=0.75) +
   geom_line(aes(y = divMonthObs$totalPrecipitation, 
                 col = "Precipitation"), size=0.75) +
   geom_line(aes(y = divMonthObs$averageTemp/0.1, 
@@ -361,6 +365,22 @@ obs %>%
   filter(when > "2011-08-17" & when < "2015-08-17") %>% 
   tally() %>% 
   ggplot(aes(x = when, y = n)) + geom_line() + geom_vline(xintercept = as.numeric(as.Date("2013-08-17"))) + labs(title = "Mushroom abundance before and after Rim Fire", x = "Dates", y = "Mushroom Count")
+
+
+#-----------------------------------
+##Diversity
+placeholderName <- obs %>% 
+  filter(rank <= 9) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
+  mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
+  select(when, location, genus) %>% # Modify for species (name), genus, or family
+  group_by(when, location, genus) %>% # Can be name, genus, or family
+  tally() %>% 
+  pivot_wider(names_from = genus, values_from = n, 
+              values_fill = 0) # Can be name, genus, or family
+###Adds diversity value
+placeholderName <- data.frame(placeholderName, 
+                          diversity = diversity(placeholderName[,2:length(placeholderName)], 
+                                                index = "shannon"))
 
 ```
 
