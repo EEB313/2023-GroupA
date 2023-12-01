@@ -384,7 +384,7 @@ placeholderName <- data.frame(placeholderName,
 
 ```
 
-## Analysis/
+## Analysis/Search function
 
 ```{r}
 # search function for QOL and ease of access to data set
