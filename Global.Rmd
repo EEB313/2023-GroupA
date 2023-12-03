@@ -384,14 +384,40 @@ placeholderName <- data.frame(placeholderName,
 
 ```
 
-## Analysis
+## Analysis/Search function
 
 ```{r}
-obs
-mergedFire
-generator <- function(locationToUse){
-}
+# search function for QOL and ease of access to data set
+# error threshold for latitude and longitude set to a ~60-70 mile radius
+# for viable search results.
 
-generator("North Carolina, USA")
+fireSearch <- function(dataset, search_value=NULL, lat=NULL, lon=NULL, 
+                       error_threshold=1){
+  if (is.null(search_value) && (is.null(lat) || is.null(lon))) {
+    stop("Provide either 'search_value' or 'lat' and 'lon'")
+  }
+  
+  if (!is.null(search_value)) {
+    search_value <- tolower(search_value)
+    result <- dataset[tolower(dataset$incidentCounty) == search_value, ]
+  }
+  
+  else {
+    # Latitude and longitude search threshold to find close proximity fires.
+    result <- dataset[
+      abs(dataset$lat - lat) <= error_threshold & 
+      abs(dataset$lon - lon) <= error_threshold,
+    ]
+  }
+
+  return(result)
+}
+mergedFire
+
+# example cases
+head(fireSearch(mergedFire, "Shasta"))
+head(fireSearch(mergedFire, "shasta"))
+head(fireSearch(mergedFire, "San Diego"))
+head(fireSearch(mergedFire, lat=40, lon=-122))
 ```
 
