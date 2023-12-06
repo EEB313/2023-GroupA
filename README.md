@@ -9,7 +9,7 @@ Main goals of this project:
 
 Contributions:
 
-Brandon - Fire data analysis, mapping, CalFire data manipulation, functions to use.
-Seoyeong - Fire data analysis, writing, literature research, CalFire data manipulation, statistical tests on fire.
-Kevin - Climate data analysis, mushroom observer data manipulation, climate diversity distribution, climate GLMs.
-Eli - Climate effect research, writing, context, methods, predictions.
+- Brandon: Fire data analysis, mapping, CalFire data manipulation, functions to use.
+- Seoyeong: Fire data analysis, writing, literature research, CalFire data manipulation, statistical tests on fire.
+- Kevin: Climate data analysis, mushroom observer data manipulation, climate diversity distribution, climate GLMs.
+- Eli: Climate effect research, writing, context, methods, predictions.
