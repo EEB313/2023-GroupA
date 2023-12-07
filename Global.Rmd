@@ -1,7 +1,8 @@
+#Setup
 ```{r, warning = F, message = F}
 packages <- c("tidyverse", "vegan", "leaflet", "readxl")
 lapply(packages, library, character.only = T)
-theme_set(theme_classic())
+theme_set(theme_classic(base_size = 20))
 
 #Colour palette: "#663300" (brown), "#f51a0a" (red), "#ff00bf" (pink), "#2eb82e" (green), "#2763c4" (blue)
 ```
@@ -9,15 +10,16 @@ theme_set(theme_classic())
 #Managing the mushroom observations data
 
 ```{r, warning = F, message = F}
+#MushroomObserver Main File
 obs <- read_tsv("observations.csv")
 # Removing the useless information
 obs <- obs %>% 
   subset(is_collection_location == 1) %>% # Some reported specimens were not picked at that location 
-  select(name_id, when, location_id, confidence = vote_cache) #Taking only useful columns
+  select(name_id, when, location_id) #Taking only useful columns
 
 #--------------------------------------------
 
-# Reading in the locations
+# Reading in the location data for MushroomObserver
 locCrude <- read_tsv("locations.csv")
 
 # Including the location, name, id, and latitude and longitude
@@ -32,11 +34,11 @@ obs <- left_join(obs, loc, by = "location_id")
 
 #--------------------------------------------
 
-# Reading in the identifications
+# Reading in the identification data for MushroomObserver
 speciesCrude <- read_tsv("names.csv")
 furtherTaxonomy <- read_tsv("name_classifications.csv")[,c(1,7)]
 
-# Including the name id, name, and taxonomic ranking
+# Including the name id, name, and taxonomic rankings
 species <- speciesCrude[,c(1,2,7)]
 species <- rename(species, name_id = id)
 
@@ -45,8 +47,7 @@ obs <- left_join(obs, species, by = "name_id")
 obs <- left_join(obs, furtherTaxonomy, by = "name_id")
 
 colnames(obs) <- c("nameId", "when", "locationId", 
-                          "confidence", "lat", "lon", "location", "name", "rank", "family")
-
+                          zz"lat", "lon", "location", "name", "rank", "family")
 # The rank indicates what taxonomic level the observer provides (species, genus, family, etc.) - species is 4, genus is 9
 
 ```
@@ -55,8 +56,8 @@ colnames(obs) <- c("nameId", "when", "locationId",
 
 ##San Francisco
 ```{r}
-# Filtering observations for only observations seen in San Fran. during the
-# climate data window
+# Filtering observations for only observations seen in the 
+# San Francsico bay area during the climate data window
 sanFranObs <- obs %>% 
   filter(lat <= 38 & lat >= 37.7 & 
            lon <= -122.1 & lon >= -122.8 &
@@ -73,24 +74,27 @@ sanFranClimate <- sanFranClimate %>%
   select(when = V1, temp = V2, precipitation = V7) %>% 
   mutate(when = my(when)) # Making the data type a date
 
-# Converting to abundance data and matching to climate data
+# Grouping by month
+# Converting to abundance data 
+# and matching to climate data
 sanFranAbundance <- sanFranObs %>%   
   group_by(when = floor_date(when, "month")) %>% 
   tally() %>% 
   left_join(sanFranClimate, by = "when") %>% 
   filter(!is.na(temp))
 
-# Converting to diversity data
+# Grouping by month
+# Converting to data suitable for diversity calculations
 sanFranDiversity <- sanFranObs %>% 
   filter(!is.na(family)) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
   mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
-  select(when, family) %>% # Can be name, genus, or family
-  group_by(when = floor_date(when, "month"), family) %>% # Can be name, genus, or family
+  select(when, family) %>% # Can select for name, genus, or family
+  group_by(when = floor_date(when, "month"), family) %>% # Can group by name, genus, or family
   tally() %>% 
   pivot_wider(names_from = family, values_from = n, 
               values_fill = 0) # Can be name, genus, or family
   
-## Adding diversity and climate
+## Calculating monthly diversity and matching to climate
 sanFranDiversity <- data.frame(sanFranDiversity, 
                           diversity = diversity(sanFranDiversity[,2:length(sanFranDiversity)], 
                                                 index = "shannon")) %>% 
@@ -102,8 +106,9 @@ sanFranDiversity <- data.frame(sanFranDiversity,
 
 ####Abundance
 ```{r}
-plot(sanFranAbundance[,c(1,3,4)])
-
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(sanFranAbundance$when), max(sanFranAbundance$when), by = "month"))
 abundanceTimeseries <- full_join(timeseries, sanFranAbundance, by = "when")
 
@@ -114,7 +119,7 @@ abundanceTimeseries %>%
   geom_line(aes(y = precipitation, col = "Precipitation"), size=0.75) +
   geom_line(aes(y = temp/0.05, col = "Temperature"), size=0.75) +
   scale_y_continuous(sec.axis = sec_axis(~.*0.05, name = "Temperature (°C)")) +
-  labs(y = "Observations (n) and Precipitation (mm)", x = element_blank()) +
+  labs(y = "Abundance (n) and Precipitation (mm)", x = element_blank()) +
   xlim(x = as.Date("2010-01-01"), as.Date("2020-12-01")) +
   scale_colour_manual(values = c("#2eb82e", "#2763c4", "#f51a0a"),
                     name = element_blank(),
@@ -122,7 +127,7 @@ abundanceTimeseries %>%
                     labels = c("Observations", "Precipitation", "Temperature"))
 
 
-# Examining the relationship
+# Examining the correlations between observations and temperature/precipitation
 sanFranAbundance %>% 
   ggplot(aes(x = temp, y = n)) +
   geom_point(col = "#f51a0a") + 
@@ -145,26 +150,29 @@ sanFranAbundance %>%
 ####Diversity
 
 ```{r}
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(sanFranDiversity$when), max(sanFranDiversity$when), by = "month"))
 diversityTimeseries <- full_join(timeseries, sanFranDiversity, by = "when")
 
-# Diversity with climate overlayed - scaled up for clarity
+# Diversity with climate overlayed - diversity values scaled up for clarity
 diversityTimeseries %>% 
   ggplot(aes(x = when)) + 
-  geom_line(aes(y = diversity*50, col = "Diversity"), size=0.75) +
+  geom_line(aes(y = diversity*100, col = "Diversity"), size=0.75) +
   geom_line(aes(y = precipitation, 
                 col = "Precipitation"), size=0.75) +
   geom_line(aes(y = temp/0.05, 
                 col = "Temperature"), size=0.75) +
   scale_y_continuous(sec.axis = sec_axis(~.*0.05, name = "Temperature (°C)")) +
-  labs(y = "Diversity (x50) and Precipitation (mm)", x = element_blank()) +
+  labs(y = "Diversity (x100) and Precipitation (mm)", x = element_blank()) +
   xlim(x = as.Date("2010-01-01"), as.Date("2020-12-01")) +
   scale_colour_manual(values = c("#2eb82e", "#2763c4", "#f51a0a"),
                     name = element_blank(),
                     breaks = c("Diversity", "Precipitation", "Temperature"),
                     labels = c("Diversity", "Precipitation", "Temperature"))
 
-# Plotting the relations
+# Examining the correlations between observations and temperature/precipitation
 sanFranDiversity %>% subset(diversity > 0) %>% 
   ggplot(aes(x = temp, y = diversity)) +
   geom_point(col = "#f51a0a") + 
@@ -187,144 +195,10 @@ sanFranDiversity %>% subset(diversity > 0) %>%
 
 
 
-***Weekly does not appear to give good resolution, so we'll stick to monthly***
-###Weekly data manipulation
-```{r}
-# San Francisco weekly climate average
-climD <- read.table("DailyClim.txt")
-climW <- climD %>% 
-  filter(V5 != -9999) %>% 
-  select(when = V1, averageTemp = V5, totalPrecipitation = V8) %>% 
-  mutate(when = mdy(when)) %>% 
-  group_by(when = floor_date(when, "week")) %>% 
-  summarize(averageTemp = mean(averageTemp), 
-            totalPrecipitation = sum(totalPrecipitation))
-
-# Filtering observations for only observations seen in San Fran. 
-# during the climate data window
-weekObs <- obs %>% 
-  filter(lat <= 38 & lat >= 37.7 & 
-           lon <= -122.1 & lon >= -122.8 &
-           when >= as.Date("2006-01-01") & when < as.Date("2023-01-01")) %>% 
-  group_by(when = floor_date(when, "week"))
-
-# Matching climate data to observation dates
-weekObs <- left_join(weekObs, climW, by = "when") %>% 
-  filter(!is.na(averageTemp))
-
-# Converting to abundance data
-weeksObs <- weekObs %>% 
-  select(when, averageTemp, totalPrecipitation) %>% 
-  group_by(when, averageTemp, totalPrecipitation) %>% 
-  tally()
-
-# Converting to diversity data
-divWeekObs <- weekObs %>% 
-  filter(rank <= 9) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
-  mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
-  select(when, genus) %>% # Can be name, genus, or family
-  group_by(when = floor_date(when, "week"), genus) %>% # Can be name, genus, or family
-  tally() %>% 
-  pivot_wider(names_from = genus, values_from = n, 
-              values_fill = 0) # Can be name, genus, or family
-  
-## Adding diversity and climate
-divWeekObs <- data.frame(divWeekObs, 
-                          diversity = diversity(divWeekObs[,2:length(divWeekObs)], 
-                                                index = "shannon")) %>% 
-  left_join(climW, by = "when") %>% 
-  filter(!is.na(averageTemp))
-```
-
-###Weekly Exploration
-
-
-#### Abundance
-
-```{r}
-# Creating a vector to plot month divisions
-months <- c()
-for(y in c(0:1)) {
-  
-  for(m in c(1:12)) {
-    
-      months[m+(12*y)] <- 
-        paste("201",as.character(y),"-",as.character(m),"-01", sep = "")
-    
-  }
-  
-}
-
-# Plotting
-weeksObs %>% 
-  ggplot(aes(x = when)) + 
-  geom_line(aes(y = n, 
-                col = "Observations"), size=0.75) +
-  geom_line(aes(y = totalPrecipitation, 
-                col = "Precipitation"), size=0.75) +
-  geom_line(aes(y = averageTemp/0.1, 
-                col = "Temperature"), size=0.75) +
-  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
-  xlim(as.Date(c("2010-01-01", "2012-01-01"))) +
-  geom_vline(xintercept = as.Date(months), colour = "grey", linetype = "dashed") +
-  geom_vline(xintercept = as.Date("2011-01-01")) +
-  ylab("Observations (n) and Precipitation (mm)") +
-  theme_classic()
-
-weeksObs %>% 
-  ggplot(aes(x = averageTemp, y = n)) +
-  geom_point(col = "darkred") +
-  theme_classic()
-
-weeksObs %>% 
-  ggplot(aes(x = totalPrecipitation, y = n)) +
-  geom_point(col = "blue") +
-  theme_classic()
-```
-
-#### Diversity
-
-```{r}
-divWeekObs %>% 
-  ggplot(aes(x = when)) + 
-  geom_line(aes(y = diversity*50, 
-                col = "Diversity"), size=0.75) +
-  geom_line(aes(y = totalPrecipitation, 
-                col = "Precipitation"), size=0.75) +
-  geom_line(aes(y = averageTemp/0.1, 
-                col = "Temperature"), size=0.75) +
-  scale_y_continuous(sec.axis = sec_axis(~.*0.1, name = "Temperature")) +
-  xlim(as.Date(c("2010-01-01", "2012-01-01"))) +
-  geom_vline(xintercept = as.Date(months), colour = "grey", linetype = "dashed") +
-  geom_vline(xintercept = as.Date("2011-01-01")) +
-  theme_classic()
-
-divWeekObs %>% 
-  ggplot(aes(x = averageTemp, y = diversity)) +
-  geom_point(col = "darkred") +
-  theme_classic()
-
-divWeekObs %>% 
-  ggplot(aes(x = totalPrecipitation, y = diversity)) +
-  geom_point(col = "blue") +
-  theme_classic()
-
-divWeekObs %>% 
-  ggplot(aes(x = diversity)) +
-  geom_histogram(bins = 15)
-```
-
-
-***----------------------------------------------------------***
-
-
-***-----------------------------------------------------------***
-
-
 ##Ontario
 ```{r}
-# Filtering observations for only observations seen in Ontario during the
-# climate data window
+# Filtering observations for only observations seen in Ontario 
+# during the climate data window
 ontarioObs <- obs %>% 
   filter(lat <= 43.85 & lat >= 42.54 & 
            lon <= -79 & lon >= -82.4 &
@@ -335,7 +209,7 @@ ontarioObs <- obs %>%
 
 ```{r}
 # Ontario monthly climate average
-ontarioClimate <- read_csv("ontarioClimate.csv")[,c(8,13,24)] %>% 
+ontarioClimate <- read_csv("ontarioClimate.csv")[,c(19,6,32)] %>% 
   group_by(when = floor_date(ymd(LOCAL_DATE), "month")) %>% 
   subset(!is.na(MEAN_TEMPERATURE) & !is.na(TOTAL_PRECIPITATION)) %>% 
   summarize(temp = mean(MEAN_TEMPERATURE), 
@@ -348,7 +222,7 @@ ontarioAbundance <- ontarioObs %>%
   left_join(ontarioClimate, by = "when") %>% 
   filter(!is.na(temp))
 
-# Converting to diversity data
+# Converting to data suitable for the diversity function
 ontarioDiversity <- ontarioObs %>% 
   filter(!is.na(family)) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
   mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
@@ -358,7 +232,7 @@ ontarioDiversity <- ontarioObs %>%
   pivot_wider(names_from = family, values_from = n, 
               values_fill = 0) # Can be name, genus, or family
   
-## Adding diversity and climate
+## Calculating diversity and matching to climate
 ontarioDiversity <- data.frame(ontarioDiversity, 
                           diversity = diversity(ontarioDiversity[,2:length(ontarioDiversity)], 
                                                 index = "shannon")) %>% 
@@ -370,8 +244,9 @@ ontarioDiversity <- data.frame(ontarioDiversity,
 
 ####Abundance
 ```{r}
-plot(ontarioAbundance[,c(1,3,4)])
-
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(ontarioAbundance$when), max(ontarioAbundance$when), by = "month"))
 abundanceTimeseries <- full_join(timeseries, ontarioAbundance, by = "when")
 
@@ -388,7 +263,7 @@ abundanceTimeseries %>%
                     breaks = c("Observations", "Precipitation", "Temperature"),
                     labels = c("Observations", "Precipitation", "Temperature"))
 
-# Examining the relationship
+# Examining the correlations between observations and temperature/precipitation
 ontarioAbundance %>% 
   ggplot(aes(x = temp, y = n)) +
   geom_point(col = "#f51a0a") + 
@@ -411,10 +286,13 @@ ontarioAbundance %>%
 ####Diversity
 
 ```{r}
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(ontarioDiversity$when), max(ontarioDiversity$when), by = "month"))
 diversityTimeseries <- full_join(timeseries, ontarioDiversity, by = "when")
 
-# Diversity with climate overlayed - scaled up for clarity
+# Diversity with climate overlayed - diversity values scaled up for clarity
 diversityTimeseries %>% 
   ggplot(aes(x = when)) + 
   geom_line(aes(y = diversity*100, col = "Diversity"), size=0.75) +
@@ -429,7 +307,7 @@ diversityTimeseries %>%
                     breaks = c("Diversity", "Precipitation", "Temperature"),
                     labels = c("Diversity", "Precipitation", "Temperature"))
 
-# Plotting the relations
+# Examining the correlations between observations and temperature/precipitation
 ontarioDiversity %>% subset(diversity > 0) %>% 
   ggplot(aes(x = temp, y = diversity)) +
   geom_point(col = "#f51a0a") + 
@@ -451,8 +329,8 @@ ontarioDiversity %>% subset(diversity > 0) %>%
 
 ##Colombia
 ```{r}
-# Filtering observations for only observations seen in Colombia. during the
-# climate data window
+# Filtering observations for only observations seen in Colombia 
+# during the climate data window
 colombiaObs <- obs %>% 
   filter(lat <= 12.4 & lat >= 1.2 & 
            lon <= -70 & lon >= -79 &
@@ -461,8 +339,8 @@ colombiaObs <- obs %>%
 
 ###Monthly data manipulation 
 
-```{r}
-# Colombia monthly climate average
+```{r} 
+# Colombia monthly climate average - data is contained within two separate files
 ## Temperature
 colombiaTemp <- read.table("colombiaTemp.per", skip = 3, header = T) %>% 
   select(-c(MAM, JJA, SON, DJF, ANN)) %>%
@@ -474,6 +352,7 @@ colombiaTemp <- read.table("colombiaTemp.per", skip = 3, header = T) %>%
   filter(date >= as.Date("2010-01-01"))
 
 ## Precipitation
+### Merging the two datasets together into one climate dataframe
 colombiaClimate <- read.table("colombiaPrecip.per", skip = 3, header = T) %>% 
   select(-c(MAM, JJA, SON, DJF, ANN)) %>%
   rename("01" = "JAN", "02" = "FEB", "03" = "MAR", "04" = "APR", 
@@ -485,8 +364,6 @@ colombiaClimate <- read.table("colombiaPrecip.per", skip = 3, header = T) %>%
   select(when, precipitation) %>% 
   data.frame(colombiaTemp[3])
 
-
-
 # Converting to abundance data and matching to climate data
 colombiaAbundance <- colombiaObs %>%   
   group_by(when = floor_date(when, "month")) %>% 
@@ -494,7 +371,7 @@ colombiaAbundance <- colombiaObs %>%
   left_join(colombiaClimate, by = "when") %>% 
   filter(!is.na(temp))
 
-# Converting to diversity data
+# Converting to data suitable for diversity calculation
 colombiaDiversity <- colombiaObs %>% 
   filter(!is.na(family)) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
   mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
@@ -504,7 +381,7 @@ colombiaDiversity <- colombiaObs %>%
   pivot_wider(names_from = family, values_from = n, 
               values_fill = 0) # Can be name, genus, or family
   
-## Adding diversity and climate
+## Calculating diversity and matching to climate
 colombiaDiversity <- data.frame(colombiaDiversity, 
                           diversity = diversity(colombiaDiversity[,2:length(colombiaDiversity)], 
                                                 index = "shannon")) %>% 
@@ -516,8 +393,9 @@ colombiaDiversity <- data.frame(colombiaDiversity,
 
 ####Abundance
 ```{r}
-plot(colombiaAbundance[,c(1,3,4)])
-
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(colombiaAbundance$when), max(colombiaAbundance$when), by = "month"))
 abundanceTimeseries <- full_join(timeseries, colombiaAbundance, by = "when")
 
@@ -535,7 +413,7 @@ abundanceTimeseries %>%
                     breaks = c("Observations", "Precipitation", "Temperature"),
                     labels = c("Observations", "Precipitation", "Temperature"))
 
-# Examining the relationship
+# Examining the correlations between observations and temperature/precipitation
 colombiaAbundance %>% 
   ggplot(aes(x = temp, y = n)) +
   geom_point(col = "#f51a0a") + 
@@ -558,10 +436,13 @@ colombiaAbundance %>%
 ####Diversity
 
 ```{r}
+# Re-making the data "messy"
+## Making a continuous time scale so ggplot plots blank space where there are
+## null values instead of connecting nonconsecutive points with an ugly line
 timeseries <- data.frame(when = seq.Date(min(colombiaDiversity$when), max(colombiaDiversity$when), by = "month"))
 diversityTimeseries <- full_join(timeseries, colombiaDiversity, by = "when")
 
-# Diversity with climate overlayed - scaled up for clarity
+# Diversity with climate overlayed - diversity values scaled up for clarity
 diversityTimeseries %>% 
   ggplot(aes(x = when)) + 
   geom_line(aes(y = diversity*50, col = "Diversity"), size=0.75) +
@@ -577,7 +458,7 @@ diversityTimeseries %>%
                     breaks = c("Diversity", "Precipitation", "Temperature"),
                     labels = c("Diversity", "Precipitation", "Temperature"))
 
-# Plotting the relations
+# Examining the correlations between observations and temperature/precipitation
 colombiaDiversity %>% subset(diversity > 0) %>% 
   ggplot(aes(x = temp, y = diversity)) +
   geom_point(col = "#f51a0a") + 
@@ -599,19 +480,22 @@ colombiaDiversity %>% subset(diversity > 0) %>%
 
 ##Likelihood :) to determine diversity distribution
 ```{r}
-#sanFranDiversity(gamma(4.99, 1.96), invgauss(2.54, 8.9), exp(0.39)), 
-#ontarioDiversity(gamma(6.82,	2.26), invgauss(3.02,	12.72), exp(0.33)), or 
-#colombiaDiversity(gamma(5.27, 2.04), invgauss(2.58, 9.75), exp(0.39))
+#Finding the parameters for a set location (Modify for sanFran, ontario, or colombia)
+##sanFranDiversity(gamma(~4.9, ~2.2), invgauss(~2.2, ~7.5), exp(~0.45)), 
+##ontarioDiversity(gamma(~9.8,	~3.8), invgauss(~2.6,	~17.1), exp(~0.39))
+##colombiaDiversity(gamma(~7.8, ~2.9), invgauss(~2.7, ~13.5), exp(~0.37))
 div <- sanFranDiversity %>% subset(diversity > 0) %>% select(diversity)
 
 #Gamma
+##Gamma Probability Density Function
 LLGamma <- function(diversity, alpha, beta){
   probGamma <- ((diversity^(alpha - 1)) * exp(-beta*diversity) * (beta^alpha)) / gamma(alpha)
   return(sum(log(probGamma)))
 }
 
+##Finding the log likelihoods
 LL <- c()
-gammaParams <- expand.grid(alpha = seq(4, 5, 0.01), beta = seq(1, 2, 0.01))
+gammaParams <- expand.grid(alpha = seq(0.1, 15, 0.1), beta = seq(0.1, 15, 0.1))
 for (i in 1:nrow(gammaParams)){
   LL[i] <- LLGamma(div, gammaParams[i, 1], gammaParams[i, 2])
 }
@@ -620,13 +504,16 @@ gammaTest <- cbind(LL, gammaParams)
 
 
 #Inverse-Gaussian
+##Inverse-Gaussian Probability Density Function
 LLInvgauss <- function(diversity, mu, lambda) {
   probInvgauss <- sqrt(lambda/(2*pi*diversity^3)) * exp((-lambda*(diversity - mu)^2) / (2*(mu^2)*diversity))
   return(sum(log(probInvgauss)))
 }
 
+
+##Finding the log likelihoods
 LL <- c()
-invgaussParams <- expand.grid(mu = seq(2, 3, 0.01), lambda = seq(8, 9, 0.01))
+invgaussParams <- expand.grid(mu = seq(0.1, 15, 0.1), lambda = seq(0.1, 20, 0.1))
 for (i in 1:nrow(invgaussParams)) {
   LL[i] <- LLInvgauss(div, invgaussParams[i,1],invgaussParams[i,2])
 }
@@ -635,11 +522,13 @@ invgaussTest <- cbind(LL, invgaussParams)
 
 
 #Exponential
+##Exponential Probability Density Function
 LLExp <- function(diversity, lambda) {
   probExp <- lambda*exp(-lambda*diversity)
   return(sum(log(probExp)))
 }
 
+##Finding the log likelihoods
 LL <- c()
 expParams <- seq(0, 10, 0.01)
 for (i in 1:length(expParams)) {
@@ -648,24 +537,23 @@ for (i in 1:length(expParams)) {
 expTest <- data.frame(LL, lambda = expParams)
 
 
-
-## AIC
+# Finding MLEs
 MLEGamma <- subset(gammaTest, LL == max(LL)); MLEGamma
 MLEInvgauss <- subset(invgaussTest, LL == max(LL)); MLEInvgauss
 MLEExp <- subset(expTest, LL == max(LL) & is.finite(LL)); MLEExp
-
+# AIC to find best distribution
 AIC <- data.frame(4-2*MLEGamma[1], 4-2*MLEInvgauss[1], 2-2*MLEExp[1])
 colnames(AIC) <- c("gamma", "invgauss", "exp");AIC
 
 ##Graphing
-
-distributions <- data.frame(cbind(diversity, y = 0), 
-           Gamma = ((diversity^(MLEGamma$alpha - 1)) * exp(-MLEGamma$beta*diversity) *  
+###Calculating the lines
+distributions <- data.frame(cbind(div, y = 0), 
+           Gamma = ((div^(MLEGamma$alpha - 1)) * exp(-MLEGamma$beta*div) *  
                       (MLEGamma$beta^MLEGamma$alpha)) / gamma(MLEGamma$alpha),
-           InverseGaussian = sqrt(MLEInvgauss$lambda/(2*pi*diversity^3)) * 
-                  exp((-MLEInvgauss$lambda*(diversity - MLEInvgauss$mu)^2) / 
-                        (2*(MLEInvgauss$mu^2)*diversity)),
-           Exponential = MLEExp$lambda * exp(-MLEExp$lambda*diversity)) 
+           InverseGaussian = sqrt(MLEInvgauss$lambda/(2*pi*div^3)) * 
+                  exp((-MLEInvgauss$lambda*(div - MLEInvgauss$mu)^2) / 
+                        (2*(MLEInvgauss$mu^2)*div)),
+           Exponential = MLEExp$lambda * exp(-MLEExp$lambda*div)) 
 colnames(distributions)[3:5] <- c("Gamma", "InverseGaussian", "Exponential")
 distributions <- pivot_longer(distributions, cols = c(3:5), names_to = "distribution")
 
@@ -680,9 +568,9 @@ distributions %>%
   scale_colour_manual(values = c("blue", "red", "orange"),
                     name = "Distibution Type",
                     breaks = c("Gamma", "InverseGaussian", "Exponential"),
-                    labels = c("Gamma (AIC = 421)",
-                               "Inverse Gaussian (AIC = 447)",
-                               "Exponential (AIC = 547)"))
+                    labels = c("Gamma (AIC = 384)",
+                               "Inverse Gaussian (AIC = 411)",
+                               "Exponential (AIC = 506)"))
 
 ```
 
@@ -690,23 +578,39 @@ distributions %>%
 
 ##Models
 ```{r}
-#San Francisco
+#Finding the best model
+##Abundance model (Poisson dist.)
+##sanFranAbundance, ontarioAbundance, or colombiaAbundance
+modelTest <- sanFranAbundance 
+AIC(glm(n ~ temp, family = poisson, data = modelTest),
+    glm(n ~ precipitation, family = poisson, data = modelTest),
+    glm(n ~ precipitation + temp, family = poisson, data = modelTest),
+    glm(n ~ precipitation * temp, family = poisson, data = modelTest))
+##Diversity model (Gamma dist.)
+##sanFranDiversity, ontarioDiversity, or colombiaDiversity
+divModelTest <- ontarioDiversity %>% subset(diversity > 0) 
+AIC(glm(diversity ~ temp, family = Gamma, data = divModelTest),
+    glm(diversity ~ precipitation, family = Gamma, data = divModelTest),
+    glm(diversity ~ precipitation + temp, family = Gamma, data = divModelTest),
+    glm(diversity ~ precipitation * temp, family = Gamma, data = divModelTest))
+
+#Selected models
 summary(glm(n ~ precipitation * temp,
     family = poisson, data = sanFranAbundance))
-summary(glm(diversity ~ precipitation * temp, 
-    family = Gamma, data = subset(sanFranDiversity, diversity > 0)))
-print("-----------------------------------------------")
-summary(glm(n ~ precipitation + temp,  # equiv AIC in interaction and separate - interaction non-significant
-    family = poisson, data = ontarioAbundance))
-summary(glm(diversity ~ temp, # only + model higher in AIC, only temp significant
-    family = Gamma, data = subset(ontarioDiversity, diversity > 0)))
-print("-----------------------------------------------")
+summary(glm(n ~ precipitation + temp,  # equiv AIC in interaction and separate effect models - 
+    family = poisson, data = ontarioAbundance)) #interaction non-significant
 summary(glm(n ~ precipitation * temp,
     family = poisson, data = colombiaAbundance))
+print("-----------------------------------------------")
+summary(glm(diversity ~ precipitation * temp, 
+    family = Gamma, data = subset(sanFranDiversity, diversity > 0)))
+summary(glm(diversity ~ temp, #Only the precipitation model is higher in AIC, only temp significant
+    family = Gamma, data = subset(ontarioDiversity, diversity > 0)))
 summary(glm(diversity ~ precipitation + temp, # all equiv in AIC, only + model is significant
     family = Gamma, data = subset(colombiaDiversity, diversity > 0)))
 
 ```
+
 
 # Wildfires
 
