@@ -2,7 +2,7 @@
 ```{r, warning = F, message = F}
 packages <- c("tidyverse", "vegan", "leaflet", "readxl")
 lapply(packages, library, character.only = T)
-theme_set(theme_classic(base_size = 20))
+theme_set(theme_classic(base_size = 24))
 
 #Colour palette: "#663300" (brown), "#f51a0a" (red), "#ff00bf" (pink), "#2eb82e" (green), "#2763c4" (blue)
 ```
@@ -47,8 +47,45 @@ obs <- left_join(obs, species, by = "name_id")
 obs <- left_join(obs, furtherTaxonomy, by = "name_id")
 
 colnames(obs) <- c("nameId", "when", "locationId", 
-                          zz"lat", "lon", "location", "name", "rank", "family")
+                          "lat", "lon", "location", "name", "rank", "family")
 # The rank indicates what taxonomic level the observer provides (species, genus, family, etc.) - species is 4, genus is 9
+
+```
+
+#Getting a sense of the data with Leaflet
+```{r}
+#Grouping observations into more digestible (and readable/processable) chunks of time
+mapObs <- obs %>% select(when, lat, lon) %>% 
+  mutate(timeframe = cut(when, as.Date(c("1880-01-01", "2000-01-01", "2002-01-01", "2004-01-01",
+                                 "2006-01-01", "2008-01-01", "2010-01-01", "2012-01-01",
+                                 "2014-01-01", "2016-01-01", "2018-01-01", "2020-01-01", 
+                                 "2022-01-01", "2023-01-01")),
+                         labels = c("ancient", "2000-02", "2002-04", "2004-06", "2006-08",
+                                    "2008-10", "2010-12", "2012-14", "2014-16", "2016-18",
+                                    "2018-20", "2020-22", "2022-23")))
+mapObs <- split(mapObs, mapObs$timeframe)
+
+#Creating the leaflet
+##To be honest, not entirely sure how all this code works - it just does
+l <- leaflet() %>% addTiles() 
+names(mapObs) %>% 
+  walk(function(df) {
+    l <<- l %>% 
+      addMarkers(data = mapObs[[df]],
+                 ~lon, ~lat,
+                 label = ~as.character(when),
+                 popup = ~as.character(when),
+                 group = df,
+                 clusterOptions = markerClusterOptions(removeOutsideVisibleBounds = F),
+                 labelOptions = labelOptions(noHide = F, direction = "auto")
+                 )
+  })
+
+#Viewing the leaflet with a legend control
+l %>% addLayersControl(
+  overlayGroups = names(mapObs),
+  options = layersControlOptions(collapsed = FALSE)
+)
 
 ```
 
@@ -109,7 +146,7 @@ sanFranDiversity <- data.frame(sanFranDiversity,
 # Re-making the data "messy"
 ## Making a continuous time scale so ggplot plots blank space where there are
 ## null values instead of connecting nonconsecutive points with an ugly line
-timeseries <- data.frame(when = seq.Date(min(sanFranAbundance$when), max(sanFranAbundance$when), by = "month"))
+timeseries <- data.frame(when = seq.Date(min(colombiaAbundance$when), max(sanFranAbundance$when), by = "month"))
 abundanceTimeseries <- full_join(timeseries, sanFranAbundance, by = "when")
 
 # Plotting monthly observations to monthly climate
@@ -612,7 +649,7 @@ summary(glm(diversity ~ precipitation + temp, # all equiv in AIC, only + model i
 ```
 
 
-# Wildfires
+#Wildfires
 
 ## Fire Mapping
 ```{r}
