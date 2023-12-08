@@ -833,12 +833,20 @@ countyData[sample(nrow(countyData), 15), ]
 regressionData <-
 rbind(merger(observationGenerator("Riverside")),merger(observationGenerator("San Diego")),merger(observationGenerator("Kern")),merger(observationGenerator("San Luis Obispo")),merger(observationGenerator("Shasta")),merger(observationGenerator("Butte")),merger(observationGenerator("Siskiyou")),merger(observationGenerator("Fresno")),merger(observationGenerator("San Bernardino")),merger(observationGenerator("Los Angeles")),merger(observationGenerator("Humboldt")), merger(observationGenerator("Marin")), merger(observationGenerator("Mendocino")), merger(observationGenerator("Santa Clara")), merger(observationGenerator("Sonoma")))
 
+# For changing the unit from acres to square km
+regressionData <- regressionData %>% 
+  mutate(squareKmBurnt = totalAreaBurnt/247.1)
+
 # Codes for statistical tests and graphing
 
 mixedModel <- lmer(n^(1/4) ~ squareKmBurnt  + (1|incidentCounty), data = regressionData, REML = FALSE)
 summary(mixedModel)
 
-ggplot(regressionData, aes(x = squareKmBurnt, y = fourthRoot, color = incidentCounty)) + geom_line(aes(y=fit_IntSlope)) + geom_point() + geom_abline(aes(intercept=2.811, slope=2.312e-04))+ labs(x = "Area Burned by Fire (Square Kilometre)", y = "Number of Mushroom Observations^(1/4)") 
+regressionData <- regressionData %>% 
+  na.omit() %>% 
+  mutate(fourthRoot = n^(1/4)) %>% 
+  mutate(fit_InterceptOnly = predict(mixedModel))
 
+ggplot(regressionData, aes(x = squareKmBurnt, y = fourthRoot, color = incidentCounty)) + geom_line(aes(y=fit_InterceptOnly)) + geom_point() + geom_abline(aes(intercept=2.812, slope=7.655e-05)) + labs(x = "Area Burned by Fire (Square Kilometre)", y = "Number of Mushroom Observations^(1/4)") + theme_classic() + theme(legend.key.size = unit(4, "mm"))
 ```
 
