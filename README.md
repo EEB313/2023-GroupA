@@ -1,5 +1,9 @@
 # 2023-GroupA
 
+Abstract
+
+In this study, we investigated the impact of fire, precipitation, and temperature on mushroom abundance and diversity using Mushroom Observer, a participatory-science-driven database. We found that the occurrence of fire did not significantly affect mushroom abundance in selected California counties. Precipitation and temperature analysis both reveal a strong effect on mushroom abundance and diversity. However, the direction and magnitude of these correlations vary, likely influenced by the unique climate conditions of each area. Overall, the use of participatory science in ecological analysis was found to be feasible, and further exploration using public data is encouraged.
+
 Main goals of this project:
 
 - Observe, investigate, and demonstrate the effects of weather events such as fire, precipitation, and temperature on fungal diversity, richness, abundance.

@@ -1,6 +1,6 @@
 #Setup
 ```{r, warning = F, message = F}
-packages <- c("tidyverse", "vegan", "leaflet", "readxl")
+packages <- c("tidyverse", "vegan", "leaflet", "readxl", "lme4")
 lapply(packages, library, character.only = T)
 theme_set(theme_classic(base_size = 24))
 
@@ -146,7 +146,7 @@ sanFranDiversity <- data.frame(sanFranDiversity,
 # Re-making the data "messy"
 ## Making a continuous time scale so ggplot plots blank space where there are
 ## null values instead of connecting nonconsecutive points with an ugly line
-timeseries <- data.frame(when = seq.Date(min(colombiaAbundance$when), max(sanFranAbundance$when), by = "month"))
+timeseries <- data.frame(when = seq.Date(min(sanFranAbundance$when), max(sanFranAbundance$when), by = "month"))
 abundanceTimeseries <- full_join(timeseries, sanFranAbundance, by = "when")
 
 # Plotting monthly observations to monthly climate
@@ -736,23 +736,6 @@ obs %>%
   filter(when > "2011-08-17" & when < "2015-08-17") %>% 
   tally() %>% 
   ggplot(aes(x = when, y = n)) + geom_line() + geom_vline(xintercept = as.numeric(as.Date("2013-08-17"))) + labs(title = "Mushroom abundance before and after Rim Fire", x = "Dates", y = "Mushroom Count")
-
-
-#-----------------------------------
-##Diversity
-placeholderName <- obs %>% 
-  filter(rank <= 9) %>% # Modifiable for species (= 4), genus (= 9), family (!is.na(family))
-  mutate(genus = lapply(strsplit(name, split = " "), '[[', 1)) %>% # To target for genus
-  select(when, location, genus) %>% # Modify for species (name), genus, or family
-  group_by(when, location, genus) %>% # Can be name, genus, or family
-  tally() %>% 
-  pivot_wider(names_from = genus, values_from = n, 
-              values_fill = 0) # Can be name, genus, or family
-###Adds diversity value
-placeholderName <- data.frame(placeholderName, 
-                          diversity = diversity(placeholderName[,2:length(placeholderName)], 
-                                                index = "shannon"))
-
 ```
 
 ## Analysis/Search function
